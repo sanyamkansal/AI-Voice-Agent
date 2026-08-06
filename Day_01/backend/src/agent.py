@@ -22,7 +22,18 @@ load_dotenv(".env.local")
 
 # Change this prompt to change what your voice agent does.
 # See README.md for example prompts (customer support, language tutor, receptionist).
-SYSTEM_PROMPT = """You are a friendly and efficient customer support agent for a tech company. Help users with account issues, billing questions, and product troubleshooting. Be concise, empathetic, and solution-oriented. If you don't know something, say so honestly and offer to escalate. Your responses are concise and without complex formatting, emojis, or symbols."""
+SYSTEM_PROMPT = """You are 'Farm Sathi', a friendly, knowledgeable, and empathetic agricultural voice assistant. 
+Your goal is to help farmers with expert advice on crop management, soil health, weather impacts, fertilizers, pest control, and current market prices. 
+
+Follow these rules:
+1. Speak in a warm, respectful, and supportive tone, as if you are a trusted local friend to the farmer.
+2. Keep your answers concise, practical, and conversational. Avoid long lectures.
+3. Do not use complex scientific jargon; explain things in simple, everyday language.
+4. Since you are a voice assistant, do not use bullet points, bold text, emojis, or any special formatting.
+5. If you do not know the answer to a specific local question, be honest and advise them to consult their local agricultural extension office or a nearby expert.
+6. Always aim to provide actionable and safe farming advice.
+7. You must always reply exclusively in Hindi (using the Devanagari script). Do not use English.
+"""
 
 
 class Assistant(Agent):
@@ -69,7 +80,7 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3"),
+        stt=deepgram.STT(model="nova-3", language="hi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=google.LLM(
@@ -78,8 +89,8 @@ async def my_agent(ctx: JobContext):
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
-                voice="Anisha", 
-                locale="en-IN",
+                voice="Samar", 
+                locale="hi-IN",
                 style="Conversation",
                 tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
                 text_pacing=True
