@@ -1,4 +1,5 @@
 import logging
+from livekit.agents import ChatContext
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -44,8 +45,72 @@ GUARDRAILS:
 - HARD REFUSAL: NEVER confirm an order, price, or delivery date that the seller hasn't explicitly set.
 - HARD REFUSAL: NEVER disclose store profits, financial details, or owner secrets. 
 - Do not make any promises on behalf of the store. 
-- ESCALATION SCRIPT: If a customer asks for specifics you don't know, you must say: "I don't have the exact details right now, but I can have the shopkeeper call you back or you can visit the store."
+ESCALATION / HUMAN HANDOFF: 
+You must ask for human help using the create_escalation tool if:
+1. The caller has a payment, refund, or order dispute.
+2. The caller requests a bulk order or custom discount that you cannot authorize.
+CRITICAL RULE: Before calling the create_escalation tool, you MUST summarize the issue to the caller and explicitly ask for their permission to forward the details to the shopkeeper. If they say no, do NOT escalate.
+CALL OUTCOME LOGGING:
+At the very end of the conversation, right before you say goodbye to the user, you MUST call the log_call_outcome tool to record whether the interaction was a success or failure.
+A call is successful ONLY IF the caller found a product they were looking for OR completed an enquiry successfully. If they hang up early, get angry, or you couldn't help them, it is a failure.
+HANDOFF: When a customer brings up a refund, return, or damaged product, you MUST use the transfer_to_refunds tool to escalate the call to the specialist.
 STYLE: Keep your sentences short, practical, and conversational. Maintain a moderate, patient pace. Do not use special formatting like bolding or asterisks since you are a voice assistant. If there is silence, gently ask if they need help with anything else."""
+
+
+
+REFUNDS_PROMPT = """IDENTITY: You are the Returns and Refunds specialist for Dukaan Sathi. You handle all requests related to returning items, claiming refunds, or replacing damaged goods.
+OBJECTIVES: Keep your tone apologetic and helpful. Remind them they need a receipt to process a refund. Maintain a polite, respectful, and informal register.
+VISION: When the user says they have uploaded an image, you MUST use the analyze_receipt tool to look at it. Based on the analysis, approve or reject the refund.
+LANGUAGE & SCRIPT: Listen carefully to the language the user is speaking. Reply entirely in that same language. Always write every language in its own native script.
+"""
+
+class RefundsAgent(Agent):
+    @function_tool
+    async def analyze_receipt(self, context: RunContext):
+        """Use this tool when the user says they uploaded the receipt. It returns a description of the image."""
+        import os
+        from livekit.plugins import google
+        from livekit.agents.llm import ChatContext, ImageContent
+        
+        logger.info("Agent is analyzing the receipt...")
+        
+        try:
+            with open("latest_receipt.txt", "r") as f:
+                base64_img = f.read().strip()
+                
+            llm = google.LLM(model="gemini-1.5-flash")
+            ctx = ChatContext()
+            ctx.add_message(
+                role="user",
+                content=[
+                    "Analyze this image carefully. What does it show? Are there any torn items? Is it a receipt? What is the price and item?",
+                    ImageContent(image=f"data:image/jpeg;base64,{base64_img}")
+                ]
+            )
+            
+            stream = llm.chat(chat_ctx=ctx)
+            result = ""
+            async for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+                    result += chunk.choices[0].delta.content
+                
+            return f"Image Analysis Result: {result}"
+            
+        except Exception as e:
+            logger.error(f"Failed to analyze receipt: {e}")
+            return "Failed to view the image. Tell the user there was a technical error."
+
+    def __init__(self, chat_ctx: ChatContext | None = None) -> None:
+        super().__init__(
+            instructions=REFUNDS_PROMPT,
+            chat_ctx=chat_ctx,
+            tts=murf.TTS(
+                voice="Samar",
+                style="Conversation",
+                tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
+                text_pacing=True,
+            )
+        )
 
 
 class Assistant(Agent):
@@ -98,10 +163,106 @@ class Assistant(Agent):
                         
                     return f"Found '{item['name']}'. Price: ₹{item['price_inr']} per {item['unit']}. Stock available: {item['stock']}. This data is current as of {formatted_time}."
                     
-            return f"Product '{product_name}' not found in our catalog. Apologize and offer alternatives."
+            return "Product '{product_name}' not found in our catalog. Apologize and offer alternatives."
         except Exception as e:
             logger.error(f"Catalog error: {e}")
             return "Error: Failed to read from the catalog. Apologize to the user."
+
+    @function_tool
+    async def create_escalation(self, caller_name: str, issue_summary: str, agent_actions: str, urgency_level: str, preferred_language: str, context: RunContext):
+        """Use this tool to escalate an issue to a human shopkeeper.
+        
+        Args:
+            caller_name: The name of the caller needing help.
+            issue_summary: A short summary of what happened and why they need help. Do NOT include passwords or private info.
+            agent_actions: What you (the agent) already checked or told the caller.
+            urgency_level: 'High', 'Medium', or 'Low' depending on the situation.
+            preferred_language: The caller's preferred language.
+        """
+        import os
+        from datetime import datetime
+        
+        logger.info(f"Escalating issue for {caller_name}")
+        
+        escalation_data = {
+            "caller_name": caller_name,
+            "issue_summary": issue_summary,
+            "agent_actions": agent_actions,
+            "urgency": urgency_level,
+            "language": preferred_language,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        try:
+            filepath = "escalations.json"
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                data = {"escalations": []}
+                
+            data["escalations"].append(escalation_data)
+            
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+                
+            return "Escalation created successfully. Tell the user the shopkeeper will follow up with them."
+        except Exception as e:
+            logger.error(f"Failed to save escalation: {e}")
+            return "Error: Failed to create escalation. Tell the user to call back later."
+
+
+    @function_tool
+    async def log_call_outcome(self, is_successful: bool, summary: str, context: RunContext):
+        """Use this tool at the very end of the conversation to log whether the call was successful or failed.
+        
+        Args:
+            is_successful: True if the caller found a product or completed their enquiry. False otherwise.
+            summary: A brief 1-sentence reason for this outcome.
+        """
+        import os
+        from datetime import datetime
+        
+        logger.info(f"Logging call outcome: Success={is_successful}")
+        
+        try:
+            filepath = "analytics.json"
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                data = {"total_calls": 0, "successful_calls": 0, "failed_calls": 0, "calls": []}
+                
+            data["total_calls"] += 1
+            if is_successful:
+                data["successful_calls"] += 1
+            else:
+                data["failed_calls"] += 1
+                
+            data["calls"].append({
+                "timestamp": datetime.now().isoformat(),
+                "is_successful": is_successful,
+                "summary": summary
+            })
+            
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+                
+            return "Outcome logged successfully."
+        except Exception as e:
+            logger.error(f"Failed to log outcome: {e}")
+            return "Error logging outcome."
+
+
+    @function_tool
+    async def transfer_to_refunds(self, context: RunContext) -> tuple[Agent, str]:
+        """Transfer the user to the returns and refunds specialist. Use this when the user asks about returns, damaged items, or refunds."""
+        logger.info("Transferring to Returns and Refunds specialist.")
+        refunds_agent = RefundsAgent(
+            chat_ctx=self.chat_ctx.copy(exclude_instructions=True)
+        )
+        return refunds_agent, "Transferring you to our Returns and Refunds specialist. Please hold on."
+
 
     # To add tools, use the @function_tool decorator.
     # Here's an example that adds a simple weather tool.

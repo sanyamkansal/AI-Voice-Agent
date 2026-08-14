@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
-import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
+import { useAgent, useSessionContext, useSessionMessages, useChat } from '@livekit/components-react';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import {
   AgentControlBar,
@@ -179,6 +179,7 @@ export function AgentSessionView_01({
   const { messages } = useSessionMessages(session);
   const [chatOpen, setChatOpen] = useState(true);
   const { state: agentState } = useAgent();
+  const { send } = useChat();
 
   const controls: AgentControlBarControls = {
     leave: true,
@@ -258,6 +259,38 @@ export function AgentSessionView_01({
             onDisconnect={session.end}
             onIsChatOpenChange={setChatOpen}
           />
+
+          <div className="mt-6 flex flex-col items-center">
+            <label className="bg-orange-600 hover:bg-orange-500 text-white font-medium px-6 py-2 rounded-full shadow-lg transition-all cursor-pointer flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              Upload Receipt Image
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = async () => {
+                    const base64 = (reader.result as string).split(',')[1];
+                    try {
+                      await fetch('/api/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ imageBase64: base64 })
+                      });
+                      send("I have uploaded the receipt image.");
+                    } catch (error) {
+                      console.error("Upload failed", error);
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                }} 
+              />
+            </label>
+          </div>
+
         </div>
       </motion.div>
     </section>
