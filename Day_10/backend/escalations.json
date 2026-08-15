@@ -1,0 +1,12 @@
+{
+    "escalations": [
+        {
+            "caller_name": "Customer",
+            "issue_summary": "UPI payment not received by shopkeeper for yesterday's rice order",
+            "agent_actions": "Listened to the customer's issue regarding a missing UPI payment for rice ordered yesterday and the shopkeeper not receiving it.",
+            "urgency": "High",
+            "language": "English",
+            "timestamp": "2026-08-12T22:27:43.888374"
+        }
+    ]
+}

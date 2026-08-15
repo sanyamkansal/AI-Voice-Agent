@@ -1,0 +1,12 @@
+{
+    "total_calls": 1,
+    "successful_calls": 1,
+    "failed_calls": 0,
+    "calls": [
+        {
+            "timestamp": "2026-08-13T21:15:11.076223",
+            "is_successful": true,
+            "summary": "The caller inquired about rice and lentils, which were not available, and decided not to purchase anything else."
+        }
+    ]
+}
